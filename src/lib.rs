@@ -495,7 +495,7 @@ fn send_signal(pid: ProcessId, signal: i32) -> io::Result<()> {
 }
 
 #[cfg(target_os = "linux")]
-extern "C" {
+unsafe extern "C" {
     fn kill(pid: ProcessId, signal: i32) -> i32;
 }
 

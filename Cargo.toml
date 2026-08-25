@@ -1,13 +1,10 @@
 [package]
 name = "memsed-core"
 version = "0.1.0"
-edition = "2021"
-rust-version = "1.70"
+edition = "2024"
+rust-version = "1.95"
 license = "GPL-3.0-or-later"
 description = "Linux process and memory primitives for MemSed"
-
-[lib]
-path = "rust/src/lib.rs"
 
 [features]
 default = []
@@ -18,5 +15,4 @@ webui-rs = { git = "https://github.com/webui-dev/rust-webui", branch = "main", o
 
 [[bin]]
 name = "memsed-webui"
-path = "rust/src/bin/memsed-webui.rs"
 required-features = ["webui"]
