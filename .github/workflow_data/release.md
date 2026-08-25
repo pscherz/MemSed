@@ -1,7 +1,7 @@
 ## ⬇️ Download
 >### [💠 Arch Linux (AUR)](https://github.com/WillyJL/MemSed#arch-linux)
 
->### [🐧 Linux (Universal)](https://github.com/WillyJL/MemSed/releases/download/{VERSION_TAG}/memsed)
+>### [🐧 Linux](https://github.com/WillyJL/MemSed/releases/download/{VERSION_TAG}/memsed-webui)
 **You should probably check the [install guide](https://github.com/WillyJL/MemSed#install) instead of downloading directly!**
 
 ## ❤️ Support
