@@ -54,6 +54,9 @@ jobs:
         run: |
           git diff --exit-code
 
+      - name: Test Rust backend
+        run: cargo test --quiet
+
       - name: Update release notes
         if: github.event_name == 'release'
         env:

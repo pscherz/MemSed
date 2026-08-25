@@ -56,6 +56,32 @@ cmake --build -j $(nproc) --preset release
 ```
 The executable will be located at `./build/release/memsed`
 
+### Rust backend prototype
+
+The repository also contains a dependency-free Rust backend prototype in
+`rust/src/lib.rs`. It currently covers Linux process inspection, `/proc/<pid>/maps`
+region parsing, process memory handles, and process signals without changing the
+existing C/SDL build. Run its checks with:
+
+```console
+cargo test
+```
+
+The browser frontend uses a WebUI-style integration. The current prototype
+keeps the native C GUI available while the Rust backend and browser UI are
+migrated incrementally.
+
+To build the WebUI frontend prototype:
+
+```console
+cargo run --features webui --bin memsed-webui
+```
+
+This requires `curl`, `unzip`, and an installed browser. The WebUI crate
+downloads its platform static library on the first feature build. The current
+prototype supports process attachment and synchronous first/next searches for
+the concrete integer and floating-point types shown in the UI.
+
 ## Development Tips
 
 While developing, it is best to first configure with the `debug` preset:
