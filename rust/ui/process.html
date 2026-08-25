@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MemSed - Select Process</title>
+  <script src="webui.js"></script>
+  <style>
+    :root { color-scheme: dark; --bg:#17191f; --panel:#20242c; --border:#39404d; --accent:#6aa8ff; --muted:#a7afbf; }
+    * { box-sizing:border-box; } body { margin:0; min-width:600px; min-height:100vh; background:var(--bg); color:#eef2f8; font:14px system-ui,sans-serif; }
+    main { display:flex; flex-direction:column; gap:14px; min-height:100vh; padding:14px; } header, section { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:12px; }
+    header { display:flex; align-items:center; gap:10px; } h1 { margin:0 auto 0 0; font-size:20px; } button,input { border:1px solid var(--border); border-radius:5px; background:#2a303b; color:inherit; padding:8px 10px; } button { cursor:pointer; } button:hover { border-color:var(--accent); }
+    .toolbar { display:flex; gap:8px; } .toolbar input { flex:1; } .processes { flex:1; overflow:auto; border:1px solid var(--border); border-radius:5px; min-height:300px; } .row { padding:9px 10px; border-bottom:1px solid var(--border); cursor:pointer; } .row:hover,.row.selected { background:#2d4567; } .row strong { display:block; } .row small,.hint { color:var(--muted); } .status { color:var(--muted); min-height:20px; }
+  </style>
+</head>
+<body>
+<main>
+  <header><h1>MemSed</h1><button id="refresh">Refresh Processes</button><button id="exit">Quit</button></header>
+  <section>
+    <div class="toolbar"><input id="filter" placeholder="Search processes..." autofocus><button id="attach" disabled>Attach</button></div>
+    <div id="processes" class="processes"><div class="hint" style="padding:10px">Loading processes...</div></div>
+    <div id="status" class="status">Loading processes...</div>
+  </section>
+</main>
+<script>
+  let processes = [], selected = null;
+  const $ = id => document.getElementById(id);
+  function visibleProcesses() {
+    const query = $('filter').value.toLowerCase();
+    return processes.filter(p => `${p.name} ${p.pid} ${p.user} ${p.executable} ${p.command}`.toLowerCase().includes(query));
+  }
+  function render() {
+    $('processes').innerHTML = '';
+    visibleProcesses().forEach(p => {
+      const row = document.createElement('div'); row.className = 'row' + (selected?.pid === p.pid ? ' selected' : '');
+      row.innerHTML = `<strong>${p.name || 'unknown process'} (${p.pid})</strong><small>${p.user} · ${p.executable || 'no executable'}<br>${p.command}</small>`;
+      row.onclick = () => { selected = p; render(); $('attach').disabled = false; };
+      $('processes').appendChild(row);
+    });
+  }
+  async function refresh() {
+    if (typeof refresh_processes !== 'function') {
+      $('status').textContent = 'Waiting for WebUI...';
+      setTimeout(refresh, 250);
+      return;
+    }
+    $('status').textContent = 'Loading processes...';
+    try { processes = JSON.parse(await refresh_processes()); render(); $('status').textContent = `${processes.length} processes found`; }
+    catch (e) { $('status').textContent = `Unable to load processes: ${e}`; }
+  }
+  $('filter').oninput = render; $('refresh').onclick = refresh;
+  $('filter').onkeydown = event => {
+    const visible = visibleProcesses();
+    const current = selected ? visible.findIndex(p => p.pid === selected.pid) : -1;
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (visible.length) {
+        const offset = event.key === 'ArrowDown' ? 1 : -1;
+        selected = visible[(current + offset + visible.length) % visible.length];
+        render();
+        $('attach').disabled = false;
+      }
+    } else if (event.key === 'Enter' && selected) {
+      event.preventDefault();
+      $('attach').click();
+    }
+  };
+  $('exit').onclick = () => { if (typeof quit_memsed === 'function') quit_memsed(); };
+  $('attach').onclick = async () => {
+    if (!selected) return;
+    $('status').textContent = `Attaching to ${selected.pid}...`;
+    try {
+      const response = JSON.parse(await attach_process(selected.pid));
+      if (response.error) $('status').textContent = `Unable to attach: ${response.error}`;
+    } catch (error) { $('status').textContent = `Unable to attach: ${error}`; }
+  };
+  window.addEventListener('load', () => setTimeout(refresh, 250));
+</script>
+</body>
+</html>

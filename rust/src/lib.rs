@@ -136,7 +136,7 @@ impl Default for SearchParams {
             value: 123.0,
             deviation: 0.1,
             alignment: 4,
-            memory_type: MemoryType::U32,
+            memory_type: MemoryType::I32,
             region_kinds: [false, true, true, true],
             required_flags: RegionFlags::READ,
         }
@@ -149,6 +149,14 @@ pub struct SearchResult {
     pub memory_type: MemoryType,
     pub value: String,
     pub previous: Option<String>,
+    pub numeric_value: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchComparison {
+    WithinRange,
+    Higher,
+    Lower,
 }
 
 #[derive(Debug, Default)]
@@ -193,6 +201,14 @@ impl MemorySearch {
     }
 
     pub fn next(&mut self, memory: &ProcessMemory) -> io::Result<usize> {
+        self.next_with_comparison(memory, SearchComparison::WithinRange)
+    }
+
+    pub fn next_with_comparison(
+        &mut self,
+        memory: &ProcessMemory,
+        comparison: SearchComparison,
+    ) -> io::Result<usize> {
         let previous = self.batches.last().cloned().unwrap_or_default();
         let mut results = Vec::new();
         for item in &previous {
@@ -201,12 +217,20 @@ impl MemorySearch {
                 continue;
             }
             if let Some(value) = decode_value(item.memory_type, &bytes) {
-                if in_range(value, self.params.value, self.params.deviation) {
+                let matches = match comparison {
+                    SearchComparison::WithinRange => {
+                        in_range(value, self.params.value, self.params.deviation)
+                    }
+                    SearchComparison::Higher => value > item.numeric_value,
+                    SearchComparison::Lower => value < item.numeric_value,
+                };
+                if matches {
                     results.push(SearchResult {
                         address: item.address,
                         memory_type: item.memory_type,
                         value: format_value(item.memory_type, value),
                         previous: Some(item.value.clone()),
+                        numeric_value: value,
                     });
                 }
             }
@@ -226,24 +250,37 @@ impl MemorySearch {
         _previous: Option<&[SearchResult]>,
         results: &mut Vec<SearchResult>,
     ) -> io::Result<()> {
-        let size = self.params.memory_type.size() as u64;
+        let size = self.params.memory_type.size();
         let alignment = self.params.alignment.max(1);
-        let mut address = region.start;
-        let mut buffer = vec![0; size as usize];
-        while address + size <= region.end && results.len() < 100_000 {
-            if memory.read(address, &mut buffer)? == buffer.len() {
-                if let Some(value) = decode_value(self.params.memory_type, &buffer) {
+        let chunk_size = 128 * 1024;
+        let mut chunk_start = region.start;
+        let mut buffer = vec![0; chunk_size];
+        while chunk_start < region.end && results.len() < 100_000 {
+            let remaining = region.end - chunk_start;
+            let read_len = remaining.min(chunk_size as u64) as usize;
+            let read = memory.read(chunk_start, &mut buffer[..read_len])?;
+            if read == 0 {
+                break;
+            }
+            let mut offset = 0usize;
+            while offset + size <= read && results.len() < 100_000 {
+                let address = chunk_start + offset as u64;
+                if let Some(value) =
+                    decode_value(self.params.memory_type, &buffer[offset..offset + size])
+                {
                     if in_range(value, self.params.value, self.params.deviation) {
                         results.push(SearchResult {
                             address,
                             memory_type: self.params.memory_type,
                             value: format_value(self.params.memory_type, value),
                             previous: None,
+                            numeric_value: value,
                         });
                     }
                 }
+                offset += alignment as usize;
             }
-            address = address.saturating_add(alignment);
+            chunk_start += read as u64;
         }
         Ok(())
     }

@@ -5,10 +5,12 @@ use std::{
 
 use memsed_core::{
     inspect_process, list_processes, MemorySearch, MemoryType, ProcessId, ProcessMemory,
+    SearchComparison,
 };
 use webui_rs::webui;
 
-const HTML: &str = include_str!("../../ui/index.html");
+const PROCESS_HTML: &str = include_str!("../../ui/process.html");
+const MEMORY_HTML: &str = include_str!("../../ui/index.html");
 
 struct AppState {
     process: Option<ProcessMemory>,
@@ -96,9 +98,27 @@ fn attach_process(event: webui::Event) {
             app.process = Some(memory);
             app.search.reset();
             app.scratchpad.clear();
+            event.show_client(MEMORY_HTML);
             "{\"ok\":true}".to_owned()
         }
         Err(error) => format!("{{\"error\":\"{}\"}}", escape_json(&error.to_string())),
+    };
+    event.return_string(&response);
+}
+
+fn attached_process(event: webui::Event) {
+    let app = state().lock().expect("application state lock poisoned");
+    let response = match app
+        .process
+        .as_ref()
+        .and_then(|process| inspect_process(process.pid()).ok())
+    {
+        Some(process) => format!(
+            "{{\"pid\":{},\"name\":\"{}\"}}",
+            process.pid,
+            escape_json(&process.name)
+        ),
+        None => "{\"error\":\"no process attached\"}".to_owned(),
     };
     event.return_string(&response);
 }
@@ -195,6 +215,10 @@ fn add_scratchpad(event: webui::Event) {
     };
     let value = event.get_string_at(2);
     let mut app = state().lock().expect("application state lock poisoned");
+    if app.scratchpad.iter().any(|item| item.address == address) {
+        event.return_string(&scratchpad_json(&app.scratchpad));
+        return;
+    }
     app.scratchpad.push(ScratchpadItem {
         address,
         memory_type,
@@ -295,13 +319,47 @@ fn next_search(event: webui::Event) {
     let response = if let Err(error) = update_params(&event, &mut app.search) {
         format!("{{\"error\":\"{}\"}}", escape_json(&error))
     } else {
-        match app.search.next(&process) {
+        match app
+            .search
+            .next_with_comparison(&process, SearchComparison::WithinRange)
+        {
             Ok(_) => search_result_json(&app.search),
             Err(error) => format!("{{\"error\":\"{}\"}}", escape_json(&error.to_string())),
         }
     };
     app.process = Some(process);
     event.return_string(&response);
+}
+
+fn next_comparison_search(event: webui::Event, comparison: SearchComparison) {
+    let mut app = state().lock().expect("application state lock poisoned");
+    let Some(process) = app.process.take() else {
+        event.return_string("{\"error\":\"no process attached\"}");
+        return;
+    };
+    let response = match app.search.next_with_comparison(&process, comparison) {
+        Ok(_) => search_result_json(&app.search),
+        Err(error) => format!("{{\"error\":\"{}\"}}", escape_json(&error.to_string())),
+    };
+    app.process = Some(process);
+    event.return_string(&response);
+}
+
+fn next_higher(event: webui::Event) {
+    next_comparison_search(event, SearchComparison::Higher);
+}
+
+fn next_lower(event: webui::Event) {
+    next_comparison_search(event, SearchComparison::Lower);
+}
+
+fn detach_process(event: webui::Event) {
+    let mut app = state().lock().expect("application state lock poisoned");
+    app.process = None;
+    app.search.reset();
+    app.scratchpad.clear();
+    event.show_client(PROCESS_HTML);
+    event.return_string("{\"ok\":true}");
 }
 
 fn reset_search(_event: webui::Event) {
@@ -321,14 +379,18 @@ fn main() {
     window.bind("refresh_processes", refresh_processes);
     window.bind("inspect_process", inspect_selected_process);
     window.bind("attach_process", attach_process);
+    window.bind("attached_process", attached_process);
     window.bind("first_search", first_search);
     window.bind("next_search", next_search);
+    window.bind("next_higher", next_higher);
+    window.bind("next_lower", next_lower);
+    window.bind("detach_process", detach_process);
     window.bind("reset_search", reset_search);
     window.bind("add_scratchpad", add_scratchpad);
     window.bind("update_scratchpad", update_scratchpad);
     window.bind("remove_scratchpad", remove_scratchpad);
     window.bind("quit_memsed", quit_memsed);
-    window.show(HTML);
+    window.show(PROCESS_HTML);
     webui::wait();
     webui::clean();
 }

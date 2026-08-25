@@ -21,42 +21,60 @@
     .processes, .results, .scratchpad { overflow: auto; border: 1px solid var(--border); border-radius: 5px; }
     .processes { flex: 1; } .row { padding: 9px 10px; border-bottom: 1px solid var(--border); cursor: pointer; }
     .row:last-child { border-bottom: 0; } .row:hover, .row.selected { background: #2d4567; }
+    .hidden { display: none !important; }
+    .memory-page #process-view { display: none; }
+    .memory-page #address-view { display: flex; flex-direction: column; min-height: 0; }
+    .memory-page #scratchpad { flex: 1; }
     .row strong { display: block; } .row small, .hint { color: var(--muted); }
     .form { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; }
     .form input, .form select { width: 100%; } label { color: var(--muted); }
     .status { color: var(--muted); min-height: 20px; } table { border-collapse: collapse; width: 100%; } th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--border); }
   </style>
 </head>
-<body onload="setTimeout(refresh, 250)">
+<body class="memory-page" onload="setTimeout(loadAttached, 250)">
 <main>
   <header>
     <h1>MemSed</h1>
     <span id="attached" class="hint">No process selected</span>
-    <button id="refresh">Refresh Processes</button>
-    <button id="exit">Quit</button>
+    <button id="detach">Detach</button>
   </header>
   <div class="layout">
     <section>
-      <div class="toolbar"><input id="filter" placeholder="Search processes..." autofocus><button id="attach" disabled>Attach</button></div>
-      <div id="processes" class="processes"><div class="hint" style="padding:10px">Loading processes...</div></div>
+      <div id="process-view">
+        <div class="toolbar"><input id="filter" placeholder="Search processes..." autofocus><button id="attach" disabled>Attach</button></div>
+        <div id="processes" class="processes"><div class="hint" style="padding:10px">Loading processes...</div></div>
+      </div>
+      <div id="address-view">
+        <div class="toolbar"><strong>Search addresses</strong></div>
+        <div class="results" style="flex:1"><table><thead><tr><th>Address</th><th>Type</th><th>Value</th><th>Previous</th><th></th></tr></thead><tbody id="results"><tr><td colspan="5" class="hint">No search results</td></tr></tbody></table></div>
+      </div>
     </section>
     <section>
       <div class="form">
-        <label for="value">Value</label><input id="value" value="0">
-        <label for="type">Type</label><select id="type"><option>u8</option><option>u16</option><option>u32</option><option>u64</option><option>i8</option><option>i16</option><option>i32</option><option>i64</option><option>f32</option><option>f64</option></select>
+        <label for="value">Value</label><input id="value" placeholder="e.g. 123">
+        <label for="type">Type</label><select id="type"><option>u8</option><option>u16</option><option>u32</option><option>u64</option><option>i8</option><option>i16</option><option selected>i32</option><option>i64</option><option>f32</option><option>f64</option></select>
         <label for="deviation">Value ±</label><input id="deviation" value="0">
-        <label for="alignment">Alignment</label><select id="alignment"><option>1</option><option>2</option><option>4</option><option>8</option><option>16</option></select>
+        <label for="alignment">Alignment</label><select id="alignment"><option>1</option><option>2</option><option selected>4</option><option>8</option><option>16</option></select>
       </div>
-      <div class="toolbar"><button id="first-search" disabled>First Search</button><button id="next-search" disabled>Next Search</button><button id="reset-search" disabled>Reset</button></div>
+      <div class="toolbar"><button id="first-search" disabled>First Search</button><button id="next-search" disabled>Next Search</button><button id="higher-search" disabled>Higher</button><button id="lower-search" disabled>Lower</button><button id="reset-search" disabled>Reset</button></div>
       <div id="status" class="status">Attach to a process to begin.</div>
-      <div class="results"><table><thead><tr><th>Address</th><th>Type</th><th>Value</th><th>Previous</th><th></th></tr></thead><tbody id="results"><tr><td colspan="5" class="hint">No search results</td></tr></tbody></table></div>
-      <div id="scratchpad" class="scratchpad"><table><thead><tr><th>Active</th><th>Address</th><th>Type</th><th>Value</th><th>Description</th></tr></thead><tbody><tr><td colspan="5" class="hint">Scratchpad is empty</td></tr></tbody></table></div>
+      <div id="scratchpad" class="scratchpad"><table><thead><tr><th>Locked</th><th>Address</th><th>Type</th><th>Value</th><th>Description</th></tr></thead><tbody><tr><td colspan="5" class="hint">Scratchpad is empty</td></tr></tbody></table></div>
     </section>
   </div>
 </main>
 <script>
   let processes = [], selected = null;
   const $ = id => document.getElementById(id);
+  async function loadAttached() {
+    if (typeof attached_process !== 'function') { setTimeout(loadAttached, 250); return; }
+    try {
+      const response = JSON.parse(await attached_process());
+      if (!response.error) {
+        $('attached').textContent = `${response.name} (${response.pid})`;
+        $('first-search').disabled = false;
+      }
+    } catch (_) { setTimeout(loadAttached, 250); }
+  }
   function render() {
     const query = $('filter').value.toLowerCase();
     $('processes').innerHTML = '';
@@ -72,22 +90,32 @@
     try { processes = JSON.parse(await refresh_processes()); render(); $('status').textContent = `${processes.length} processes found`; }
     catch (e) { $('status').textContent = `Unable to load processes: ${e}`; }
   }
-  $('filter').oninput = render; $('refresh').onclick = refresh; $('exit').onclick = () => { if (typeof quit_memsed === 'function') quit_memsed(); };
   const searchArgs = () => [$('value').value, $('type').value, Number($('alignment').value), $('deviation').value];
+  const typeSizes = { u8: 1, i8: 1, u16: 2, i16: 2, u32: 4, i32: 4, f32: 4, u64: 8, i64: 8, f64: 8 };
+  $('type').onchange = () => { $('alignment').value = String(typeSizes[$('type').value]); };
   const showResults = response => {
     const data = JSON.parse(response);
     if (data.error) { $('status').textContent = data.error; return; }
+    ['next-search','higher-search','lower-search','reset-search'].forEach(id => $(id).disabled = false);
     $('status').textContent = `${data.count} result(s)`;
     $('results').innerHTML = data.results.map(r => `<tr><td>${r.address}</td><td>${r.type}</td><td>${r.value}</td><td>${r.previous}</td><td><button onclick="addResult('${r.address}', '${r.type}', '${r.value}')">Add</button></td></tr>`).join('') || '<tr><td colspan="5" class="hint">No results</td></tr>';
   };
   async function addResult(address, type, value) { const response = JSON.parse(await add_scratchpad(address, type, value)); if (response.error) $('status').textContent = response.error; else renderScratchpad(response); }
   function renderScratchpad(items) {
-    $('scratchpad').querySelector('tbody').innerHTML = items.map(item => `<tr data-index="${item.index}"><td><input type="checkbox" ${item.active ? 'checked' : ''} onchange="updateScratch(${item.index}, this)"></td><td>${item.address}</td><td>${item.type}</td><td><input value="${item.value}" onchange="updateScratch(${item.index}, this, true)"></td><td><button onclick="removeScratch(${item.index})">Remove</button></td></tr>`).join('') || '<tr><td colspan="5" class="hint">Scratchpad is empty</td></tr>';
+    $('scratchpad').querySelector('tbody').innerHTML = items.map(item => `<tr data-index="${item.index}"><td><input type="checkbox" ${item.active ? 'checked' : ''} onchange="updateScratch(${item.index}, this)"></td><td>${item.address}</td><td>${item.type}</td><td><input value="${item.value}" onfocus="this.select()" onkeydown="if(event.key === 'Enter'){event.preventDefault(); applyScratch(this)}"></td><td><button onclick="applyScratch(this)">Apply</button> <button onclick="removeScratch(${item.index})">Remove</button></td></tr>`).join('') || '<tr><td colspan="5" class="hint">Scratchpad is empty</td></tr>';
   }
   async function updateScratch(index, element, valueChanged = false) {
     const row = element.closest('tr'), active = row.querySelector('input[type=checkbox]').checked, value = row.querySelector('input:not([type=checkbox])')?.value;
     const response = JSON.parse(await update_scratchpad(index, valueChanged ? value : value, active));
     if (response.error) $('status').textContent = response.error; else renderScratchpad(response);
+  }
+  async function applyScratch(button) {
+    const row = button.closest('tr');
+    const index = Number(row.dataset.index);
+    const value = row.querySelector('input:not([type=checkbox])').value;
+    const active = row.querySelector('input[type=checkbox]').checked;
+    const response = JSON.parse(await update_scratchpad(index, value, active));
+    if (response.error) $('status').textContent = `Unable to apply value: ${response.error}`; else { renderScratchpad(response); $('status').textContent = 'Value applied.'; }
   }
   async function removeScratch(index) { renderScratchpad(JSON.parse(await remove_scratchpad(index))); }
   $('attach').onclick = async () => {
@@ -98,12 +126,30 @@
       if (response.error) { $('status').textContent = `Unable to attach: ${response.error}`; return; }
       $('attached').textContent = `${selected.name} (${selected.pid})`;
       $('status').textContent = 'Ready for memory search';
-      ['first-search','next-search','reset-search'].forEach(id => $(id).disabled = false);
+      $('process-view').classList.add('hidden'); $('address-view').classList.remove('hidden');
+      ['first-search','next-search','higher-search','lower-search','reset-search'].forEach(id => $(id).disabled = false);
     } catch (error) { $('status').textContent = `Unable to attach: ${error}`; }
   };
-  $('first-search').onclick = async () => showResults(await first_search(...searchArgs()));
-  $('next-search').onclick = async () => showResults(await next_search(...searchArgs()));
-  $('reset-search').onclick = () => { reset_search(); $('status').textContent = 'Search reset.'; $('results').innerHTML = '<tr><td colspan="5" class="hint">No search results</td></tr>'; };
+  async function runSearch(callback) {
+    $('status').textContent = 'Searching...';
+    try { showResults(await callback(...searchArgs())); }
+    catch (error) { $('status').textContent = `Search failed: ${error}`; }
+  }
+  $('first-search').onclick = () => runSearch(first_search);
+  $('next-search').onclick = () => runSearch(next_search);
+  $('higher-search').onclick = () => runSearch(next_higher);
+  $('lower-search').onclick = () => runSearch(next_lower);
+  $('reset-search').onclick = () => {
+    reset_search();
+    ['next-search','higher-search','lower-search','reset-search'].forEach(id => $(id).disabled = true);
+    $('first-search').disabled = false;
+    $('status').textContent = 'Search reset.';
+    $('results').innerHTML = '<tr><td colspan="5" class="hint">No search results</td></tr>';
+  };
+  $('detach').onclick = async () => {
+    try { await detach_process(); }
+    catch (error) { $('status').textContent = `Unable to detach: ${error}`; }
+  };
   setInterval(async () => {
     const rows = [...$('scratchpad').querySelectorAll('tbody tr')];
     for (const row of rows) {
