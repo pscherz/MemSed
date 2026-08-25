@@ -1,85 +1,281 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>MemSed - Select Process</title>
-  <script src="webui.js"></script>
-  <style>
-    :root { color-scheme: dark; --bg:#17191f; --panel:#20242c; --border:#39404d; --accent:#6aa8ff; --muted:#a7afbf; }
-    * { box-sizing:border-box; } body { margin:0; min-width:600px; min-height:100vh; background:var(--bg); color:#eef2f8; font:14px system-ui,sans-serif; }
-    main { display:flex; flex-direction:column; gap:14px; min-height:100vh; padding:14px; } header, section { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:12px; }
-    header { display:flex; align-items:center; gap:10px; } h1 { margin:0 auto 0 0; font-size:20px; } button,input { border:1px solid var(--border); border-radius:5px; background:#2a303b; color:inherit; padding:8px 10px; } button { cursor:pointer; } button:hover { border-color:var(--accent); }
-    .toolbar { display:flex; gap:8px; position:sticky; top:0; z-index:2; background:var(--panel); } .toolbar input { flex:1; } .processes { flex:1; overflow:auto; border:1px solid var(--border); border-radius:5px; min-height:300px; } .row { padding:9px 10px; border-bottom:1px solid var(--border); cursor:pointer; } .row:hover,.row.selected { background:#2d4567; } .row strong { display:block; } .row small,.hint { color:var(--muted); } .status { color:var(--muted); min-height:20px; }
-    .help-modal { position:fixed; inset:0; display:grid; place-items:center; background:#0008; } .help-modal > div { max-width:480px; background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:18px; box-shadow:0 8px 30px #0008; } .help-modal h2 { margin-top:0; } .hidden { display:none; }
-  </style>
-</head>
-<body>
-<main>
-  <header><h1>MemSed</h1><button id="help" title="Show instructions">Help</button><button id="refresh" title="Reload the running process list">Refresh Processes</button><button id="exit" title="Close MemSed">Quit</button></header>
-  <section>
-    <div class="toolbar"><input id="filter" placeholder="Search processes..." title="Filter processes by name, PID, user, executable, or command" autofocus><label title="Show only processes owned by your current user"><input id="only-user" type="checkbox" checked> Only user processes</label><button id="attach" title="Attach to the selected process" disabled>Attach</button></div>
-    <div id="processes" class="processes"><div class="hint" style="padding:10px">Loading processes...</div></div>
-    <div id="status" class="status">Loading processes...</div>
-  </section>
-</main>
-<div id="help-modal" class="help-modal hidden"><div><h2>How to attach</h2><p>1. Search or browse the process list.<br>2. Select a process.<br>3. Click Attach or press Enter.</p><p>Example entry: <code>game.bin (1234, 1000, /usr/bin/game)</code></p><p>You need permission to access the target process.</p><button id="close-help">Close</button></div></div>
-<script>
-  let processes = [], selected = null;
-  const currentUid = __CURRENT_UID__;
-  const $ = id => document.getElementById(id);
-  function visibleProcesses() {
-    const query = $('filter').value.toLowerCase();
-    return processes.filter(p => (!$('only-user').checked || p.uid === currentUid) && `${p.name} ${p.pid} ${p.user} ${p.executable} ${p.command}`.toLowerCase().includes(query));
-  }
-  function render() {
-    $('processes').innerHTML = '';
-    visibleProcesses().forEach(p => {
-      const row = document.createElement('div'); row.className = 'row' + (selected?.pid === p.pid ? ' selected' : '');
-      row.innerHTML = `<strong>${p.name || 'unknown process'} (${p.pid})</strong><small>${p.user} · ${p.executable || 'no executable'}<br>${p.command}</small>`;
-      row.onclick = () => { selected = p; render(); $('attach').disabled = false; };
-      $('processes').appendChild(row);
-    });
-  }
-  async function refresh() {
-    if (typeof refresh_processes !== 'function') {
-      $('status').textContent = 'Waiting for WebUI...';
-      setTimeout(refresh, 250);
-      return;
-    }
-    $('status').textContent = 'Loading processes...';
-    try { processes = JSON.parse(await refresh_processes()); render(); $('status').textContent = `${processes.length} processes found`; }
-    catch (e) { $('status').textContent = `Unable to load processes: ${e}`; }
-  }
-  $('filter').oninput = render; $('only-user').onchange = render; $('refresh').onclick = refresh;
-  $('help').onclick = () => $('help-modal').classList.remove('hidden');
-  $('close-help').onclick = () => $('help-modal').classList.add('hidden');
-  $('filter').onkeydown = event => {
-    const visible = visibleProcesses();
-    const current = selected ? visible.findIndex(p => p.pid === selected.pid) : -1;
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      event.preventDefault();
-      if (visible.length) {
-        const offset = event.key === 'ArrowDown' ? 1 : -1;
-        selected = visible[(current + offset + visible.length) % visible.length];
-        render();
-        $('attach').disabled = false;
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MemSed - Select Process</title>
+    <script src="webui.js"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #17191f;
+        --panel: #20242c;
+        --border: #39404d;
+        --accent: #6aa8ff;
+        --muted: #a7afbf;
       }
-    } else if (event.key === 'Enter' && selected) {
-      event.preventDefault();
-      $('attach').click();
-    }
-  };
-  $('exit').onclick = () => { if (typeof quit_memsed === 'function') quit_memsed(); };
-  $('attach').onclick = async () => {
-    if (!selected) return;
-    $('status').textContent = `Attaching to ${selected.pid}...`;
-    try {
-      const response = JSON.parse(await attach_process(selected.pid));
-      if (response.error) $('status').textContent = `Unable to attach: ${response.error}`;
-    } catch (error) { $('status').textContent = `Unable to attach: ${error}`; }
-  };
-  window.addEventListener('load', () => setTimeout(refresh, 250));
-</script>
-</body>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-width: 600px;
+        min-height: 100vh;
+        background: var(--bg);
+        color: #eef2f8;
+        font:
+          14px system-ui,
+          sans-serif;
+      }
+      main {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        min-height: 100vh;
+        padding: 14px;
+      }
+      header,
+      section {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      h1 {
+        margin: 0 auto 0 0;
+        font-size: 20px;
+      }
+      button,
+      input {
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        background: #2a303b;
+        color: inherit;
+        padding: 8px 10px;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:hover {
+        border-color: var(--accent);
+      }
+      .toolbar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: var(--panel);
+      }
+      .toolbar input {
+        flex: 1;
+      }
+      .user-filter {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 36px;
+        padding: 0 10px;
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        background: #2a303b;
+        color: inherit;
+        white-space: nowrap;
+        cursor: pointer;
+      }
+      .user-filter input {
+        flex: none;
+        width: 15px;
+        height: 15px;
+        margin: 0;
+        accent-color: var(--accent);
+      }
+      .processes {
+        flex: 1;
+        overflow: auto;
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        min-height: 300px;
+      }
+      .row {
+        padding: 9px 10px;
+        border-bottom: 1px solid var(--border);
+        cursor: pointer;
+      }
+      .row:hover,
+      .row.selected {
+        background: #2d4567;
+      }
+      .row strong {
+        display: block;
+      }
+      .row small,
+      .hint {
+        color: var(--muted);
+      }
+      .status {
+        color: var(--muted);
+        min-height: 20px;
+      }
+      .help-modal {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: #0008;
+      }
+      .help-modal > div {
+        max-width: 480px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 18px;
+        box-shadow: 0 8px 30px #0008;
+      }
+      .help-modal h2 {
+        margin-top: 0;
+      }
+      .hidden {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>MemSed</h1>
+        <button id="help" title="Show instructions">Help</button
+        ><button id="refresh" title="Reload the running process list">
+          Refresh Processes</button
+        ><button id="exit" title="Close MemSed">Quit</button>
+      </header>
+      <section>
+        <div class="toolbar">
+          <input
+            id="filter"
+            placeholder="Search processes..."
+            title="Filter processes by name, PID, user, executable, or command"
+            autofocus
+          /><label class="user-filter" title="Show only processes owned by your current user"
+            ><input id="only-user" type="checkbox" checked /> Only user
+            processes</label
+          ><button id="attach" title="Attach to the selected process" disabled>
+            Attach
+          </button>
+        </div>
+        <div id="processes" class="processes">
+          <div class="hint" style="padding: 10px">Loading processes...</div>
+        </div>
+        <div id="status" class="status">Loading processes...</div>
+      </section>
+    </main>
+    <div id="help-modal" class="help-modal hidden">
+      <div>
+        <h2>How to attach</h2>
+        <p>
+          1. Search or browse the process list.<br />2. Select a process.<br />3.
+          Click Attach or press Enter.
+        </p>
+        <p>Example entry: <pre>EXAMPLENAME (PID)
+UID, EXECUTABLEPATH
+COMMANDLINE</pre></p>
+        <p>You need permission to see the executable and access the target process.</p>
+        <button id="close-help">Close</button>
+      </div>
+    </div>
+    <script>
+      let processes = [],
+        selected = null;
+      const currentUid = __CURRENT_UID__;
+      const $ = (id) => document.getElementById(id);
+      function visibleProcesses() {
+        const query = $("filter").value.toLowerCase();
+        return processes.filter(
+          (p) =>
+            (!$("only-user").checked || p.uid === currentUid) &&
+            `${p.name} ${p.pid} ${p.user} ${p.executable} ${p.command}`
+              .toLowerCase()
+              .includes(query),
+        );
+      }
+      function render() {
+        $("processes").innerHTML = "";
+        visibleProcesses().forEach((p) => {
+          const row = document.createElement("div");
+          row.className = "row" + (selected?.pid === p.pid ? " selected" : "");
+          row.innerHTML = `<strong>${p.name || "unknown process"} (${p.pid})</strong><small>${p.user} · ${p.executable || "no executable"}<br>${p.command}</small>`;
+          row.onclick = () => {
+            selected = p;
+            render();
+            $("attach").disabled = false;
+          };
+          $("processes").appendChild(row);
+        });
+      }
+      async function refresh() {
+        if (typeof refresh_processes !== "function") {
+          $("status").textContent = "Waiting for WebUI...";
+          setTimeout(refresh, 250);
+          return;
+        }
+        $("status").textContent = "Loading processes...";
+        try {
+          processes = JSON.parse(await refresh_processes());
+          render();
+          $("status").textContent = `${processes.length} processes found`;
+        } catch (e) {
+          $("status").textContent = `Unable to load processes: ${e}`;
+        }
+      }
+      $("filter").oninput = render;
+      $("only-user").onchange = render;
+      $("refresh").onclick = refresh;
+      $("help").onclick = () => $("help-modal").classList.remove("hidden");
+      $("close-help").onclick = () => $("help-modal").classList.add("hidden");
+      $("filter").onkeydown = (event) => {
+        const visible = visibleProcesses();
+        const current = selected
+          ? visible.findIndex((p) => p.pid === selected.pid)
+          : -1;
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          if (visible.length) {
+            const offset = event.key === "ArrowDown" ? 1 : -1;
+            selected =
+              visible[(current + offset + visible.length) % visible.length];
+            render();
+            $("attach").disabled = false;
+          }
+        } else if (event.key === "Enter" && selected) {
+          event.preventDefault();
+          $("attach").click();
+        }
+      };
+      $("exit").onclick = () => {
+        if (typeof quit_memsed === "function") quit_memsed();
+      };
+      $("attach").onclick = async () => {
+        if (!selected) return;
+        $("status").textContent = `Attaching to ${selected.pid}...`;
+        try {
+          const response = JSON.parse(await attach_process(selected.pid));
+          if (response.error)
+            $("status").textContent = `Unable to attach: ${response.error}`;
+        } catch (error) {
+          $("status").textContent = `Unable to attach: ${error}`;
+        }
+      };
+      if (document.readyState == "loading") {
+        window.addEventListener("load", refresh);
+      } else {
+        refresh();
+      }
+    </script>
+  </body>
 </html>

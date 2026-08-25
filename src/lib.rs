@@ -1,7 +1,4 @@
 //! Dependency-light Linux backend primitives for MemSed.
-//!
-//! The crate intentionally has no third-party dependencies. The browser UI
-//! can be added later without coupling it to `/proc` data structures.
 
 #![cfg(target_os = "linux")]
 
@@ -520,8 +517,10 @@ mod tests {
         let regions =
             memory_regions(std::process::id() as ProcessId, None, RegionFlags::READ).unwrap();
         assert!(!regions.is_empty());
-        assert!(regions
-            .iter()
-            .all(|region| region.flags.contains(RegionFlags::READ)));
+        assert!(
+            regions
+                .iter()
+                .all(|region| region.flags.contains(RegionFlags::READ))
+        );
     }
 }

@@ -4,13 +4,13 @@ use std::{
 };
 
 use memsed_core::{
-    inspect_process, list_processes, MemorySearch, MemoryType, ProcessId, ProcessMemory,
-    SearchComparison,
+    MemorySearch, MemoryType, ProcessId, ProcessMemory, SearchComparison, inspect_process,
+    list_processes,
 };
 use webui_rs::webui;
 
 const PROCESS_HTML: &str = include_str!("../../ui/process.html");
-const MEMORY_HTML: &str = include_str!("../../ui/index.html");
+const MEMORY_HTML: &str = include_str!("../../ui/memory.html");
 
 fn process_html() -> String {
     let uid = std::fs::metadata("/proc/self")
@@ -179,14 +179,14 @@ fn scratchpad_json(items: &[ScratchpadItem]) -> String {
             json.push(',');
         }
         let _ = write!(
-                json,
-                "{{\"index\":{},\"address\":\"0x{:016x}\",\"type\":\"{}\",\"value\":\"{}\",\"active\":{}}}",
-                index,
-                item.address,
-                item.memory_type.name(),
-                escape_json(&item.value),
-                item.active
-            );
+            json,
+            "{{\"index\":{},\"address\":\"0x{:016x}\",\"type\":\"{}\",\"value\":\"{}\",\"active\":{}}}",
+            index,
+            item.address,
+            item.memory_type.name(),
+            escape_json(&item.value),
+            item.active
+        );
     }
     json.push(']');
     json
