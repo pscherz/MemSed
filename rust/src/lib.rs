@@ -18,6 +18,7 @@ pub type MemoryAddress = u64;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Process {
     pub pid: ProcessId,
+    pub uid: u32,
     pub name: String,
     pub executable: Option<PathBuf>,
     pub command: String,
@@ -371,13 +372,15 @@ pub fn inspect_process(pid: ProcessId) -> io::Result<Process> {
     let command = read_cmdline(proc_dir.join("cmdline"))
         .unwrap_or_else(|_| "<cannot read cmdline>".to_owned());
     let executable = fs::read_link(proc_dir.join("exe")).ok();
-    let user = fs::metadata(&proc_dir)
+    let uid = fs::metadata(&proc_dir)
         .ok()
-        .map(|metadata| metadata.uid().to_string())
+        .map(|metadata| metadata.uid())
         .unwrap_or_default();
+    let user = uid.to_string();
 
     Ok(Process {
         pid,
+        uid,
         name,
         executable,
         command,

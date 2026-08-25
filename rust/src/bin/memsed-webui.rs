@@ -12,6 +12,16 @@ use webui_rs::webui;
 const PROCESS_HTML: &str = include_str!("../../ui/process.html");
 const MEMORY_HTML: &str = include_str!("../../ui/index.html");
 
+fn process_html() -> String {
+    let uid = std::fs::metadata("/proc/self")
+        .map(|metadata| {
+            use std::os::unix::fs::MetadataExt;
+            metadata.uid()
+        })
+        .unwrap_or_default();
+    PROCESS_HTML.replace("__CURRENT_UID__", &uid.to_string())
+}
+
 struct AppState {
     process: Option<ProcessMemory>,
     search: MemorySearch,
@@ -60,8 +70,9 @@ fn refresh_processes(event: webui::Event) {
                     .map_or_else(String::new, |path| path.to_string_lossy().into_owned());
                 let _ = write!(
                     json,
-                    "{{\"pid\":{},\"name\":\"{}\",\"user\":\"{}\",\"executable\":\"{}\",\"command\":\"{}\"}}",
+                    "{{\"pid\":{},\"uid\":{},\"name\":\"{}\",\"user\":\"{}\",\"executable\":\"{}\",\"command\":\"{}\"}}",
                     process.pid,
+                    process.uid,
                     escape_json(&process.name),
                     escape_json(&process.user),
                     escape_json(&executable),
@@ -358,7 +369,8 @@ fn detach_process(event: webui::Event) {
     app.process = None;
     app.search.reset();
     app.scratchpad.clear();
-    event.show_client(PROCESS_HTML);
+    let html = process_html();
+    event.show_client(html);
     event.return_string("{\"ok\":true}");
 }
 
@@ -390,7 +402,8 @@ fn main() {
     window.bind("update_scratchpad", update_scratchpad);
     window.bind("remove_scratchpad", remove_scratchpad);
     window.bind("quit_memsed", quit_memsed);
-    window.show(PROCESS_HTML);
+    let html = process_html();
+    window.show(html);
     webui::wait();
     webui::clean();
 }
