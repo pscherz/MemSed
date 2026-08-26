@@ -8,7 +8,7 @@ in another process's memory.
 ## Requirements
 
 - Linux with `/proc`
-- An installed supported web browser
+- An installed supported web browser (Firefox, Chrome, Chromium(-based), Safari, Webview)
 - Permission to access the target process
 
 ## Building
@@ -17,7 +17,7 @@ Install Rust, `curl`, and `unzip`, then run:
 
 ```console
 cargo test
-cargo build --release --features webui --bin memsed-webui
+cargo build --release --bin memsed-webui
 ```
 
 The executable is `target/release/memsed-webui`. The WebUI build downloads its
@@ -39,9 +39,9 @@ installed browser as the application window.
 
 ## Project structure
 
-- `rust/src/lib.rs`: Linux process, memory, region, and search backend
-- `rust/src/bin/memsed-webui.rs`: WebUI bindings and application state
-- `rust/ui/`: embedded process-selection and memory-operation pages
+- `src/lib.rs`: Linux process, memory, region, and search backend
+- `src/bin/memsed-webui.rs`: WebUI bindings and application state
+- `ui/`: embedded process-selection and memory-operation pages
 
 ## License
 

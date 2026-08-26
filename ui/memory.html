@@ -365,6 +365,8 @@
           if (!response.error) {
             $("attached").textContent = `${response.name} (${response.pid})`;
             $("first-search").disabled = false;
+          } else {
+            $("status").textContent = response.error;
           }
         } catch (_) {
           setTimeout(loadAttached, 250);

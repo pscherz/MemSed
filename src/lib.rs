@@ -500,7 +500,6 @@ fn read_cmdline(path: impl AsRef<Path>) -> io::Result<String> {
         .to_owned())
 }
 
-#[cfg(target_os = "linux")]
 fn send_signal(pid: ProcessId, signal: i32) -> io::Result<()> {
     let result = libc_kill(pid, signal);
     if result == 0 {
@@ -510,12 +509,10 @@ fn send_signal(pid: ProcessId, signal: i32) -> io::Result<()> {
     }
 }
 
-#[cfg(target_os = "linux")]
 unsafe extern "C" {
     fn kill(pid: ProcessId, signal: i32) -> i32;
 }
 
-#[cfg(target_os = "linux")]
 fn libc_kill(pid: ProcessId, signal: i32) -> i32 {
     unsafe { kill(pid, signal) }
 }

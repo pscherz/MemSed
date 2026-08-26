@@ -70,7 +70,7 @@ fn refresh_processes(event: webui::Event) {
                     .map_or_else(String::new, |path| path.to_string_lossy().into_owned());
                 let _ = write!(
                     json,
-                    "{{\"pid\":{},\"uid\":{},\"name\":\"{}\",\"user\":\"{}\",\"executable\":\"{}\",\"command\":\"{}\"}}",
+                    r#"{{"pid":{},"uid":{},"name":"{}","user":"{}","executable":"{}","command":"{}"}}"#,
                     process.pid,
                     process.uid,
                     escape_json(&process.name),
@@ -82,7 +82,7 @@ fn refresh_processes(event: webui::Event) {
             json.push(']');
             json
         }
-        Err(error) => format!("{{\"error\":\"{}\"}}", escape_json(&error.to_string())),
+        Err(error) => format!(r#"{{"error":"{}"}}"#, escape_json(&error.to_string())),
     };
     event.return_string(&response);
 }
@@ -91,12 +91,12 @@ fn inspect_selected_process(event: webui::Event) {
     let pid = event.get_int() as ProcessId;
     let response = match inspect_process(pid) {
         Ok(process) => format!(
-            "{{\"pid\":{},\"name\":\"{}\",\"command\":\"{}\"}}",
+            r#"{{"pid":{},"name":"{}","command":"{}"}}"#,
             process.pid,
             escape_json(&process.name),
             escape_json(&process.command)
         ),
-        Err(error) => format!("{{\"error\":\"{}\"}}", escape_json(&error.to_string())),
+        Err(error) => format!(r#"{{"error":"{}"}}"#, escape_json(&error.to_string())),
     };
     event.return_string(&response);
 }
@@ -110,9 +110,9 @@ fn attach_process(event: webui::Event) {
             app.search.reset();
             app.scratchpad.clear();
             event.show_client(MEMORY_HTML);
-            "{\"ok\":true}".to_owned()
+            r#"{"ok":true}"#.to_owned()
         }
-        Err(error) => format!("{{\"error\":\"{}\"}}", escape_json(&error.to_string())),
+        Err(error) => format!(r#"{{"error":"{}"}}"#, escape_json(&error.to_string())),
     };
     event.return_string(&response);
 }
@@ -125,11 +125,11 @@ fn attached_process(event: webui::Event) {
         .and_then(|process| inspect_process(process.pid()).ok())
     {
         Some(process) => format!(
-            "{{\"pid\":{},\"name\":\"{}\"}}",
+            r#"{{"pid":{},"name":"{}"}}"#,
             process.pid,
             escape_json(&process.name)
         ),
-        None => "{\"error\":\"no process attached\"}".to_owned(),
+        None => r#"{"error":"no process attached"}"#.to_owned(),
     };
     event.return_string(&response);
 }
@@ -151,9 +151,9 @@ fn parse_type(value: &str) -> Option<MemoryType> {
 }
 
 fn search_result_json(search: &MemorySearch) -> String {
-    let mut json = String::from("{\"count\":");
+    let mut json = String::from(r#"{"count":"#);
     let _ = write!(json, "{}", search.current_results().len());
-    json.push_str(",\"results\":[");
+    json.push_str(r#","results":["#);
     for (index, result) in search.current_results().iter().take(1_000).enumerate() {
         if index != 0 {
             json.push(',');
@@ -161,7 +161,7 @@ fn search_result_json(search: &MemorySearch) -> String {
         let previous = result.previous.as_deref().unwrap_or("N/A");
         let _ = write!(
             json,
-            "{{\"address\":\"0x{:016x}\",\"type\":\"{}\",\"value\":\"{}\",\"previous\":\"{}\"}}",
+            r#"{{"address":"0x{:016x}","type":"{}","value":"{}","previous":"{}"}}"#,
             result.address,
             result.memory_type.name(),
             escape_json(&result.value),
@@ -180,7 +180,7 @@ fn scratchpad_json(items: &[ScratchpadItem]) -> String {
         }
         let _ = write!(
             json,
-            "{{\"index\":{},\"address\":\"0x{:016x}\",\"type\":\"{}\",\"value\":\"{}\",\"active\":{}}}",
+            r#"{{"index":{},"address":"0x{:016x}","type":"{}","value":"{}","active":{}}}"#,
             index,
             item.address,
             item.memory_type.name(),
@@ -214,14 +214,14 @@ fn add_scratchpad(event: webui::Event) {
         Ok(address) => address,
         Err(error) => {
             event.return_string(&format!(
-                "{{\"error\":\"{}\"}}",
+                r#"{{"error":"{}"}}"#,
                 escape_json(&error.to_string())
             ));
             return;
         }
     };
     let Some(memory_type) = parse_type(&event.get_string_at(1)) else {
-        event.return_string("{\"error\":\"unknown memory type\"}");
+        event.return_string(r#"{"error":"unknown memory type"}"#);
         return;
     };
     let value = event.get_string_at(2);
@@ -245,17 +245,17 @@ fn update_scratchpad(event: webui::Event) {
     let active = event.get_bool_at(2);
     let mut app = state().lock().expect("application state lock poisoned");
     let Some(item) = app.scratchpad.get(index) else {
-        event.return_string("{\"error\":\"scratchpad item not found\"}");
+        event.return_string(r#"{"error":"scratchpad item not found"}"#);
         return;
     };
     let address = item.address;
     let memory_type = item.memory_type;
     let Some(process) = app.process.as_ref() else {
-        event.return_string("{\"error\":\"no process attached\"}");
+        event.return_string(r#"{"error":"no process attached"}"#);
         return;
     };
     let Ok(bytes) = encode_value(memory_type, &value) else {
-        event.return_string("{\"error\":\"invalid value\"}");
+        event.return_string(r#"{"error":"invalid value"}"#);
         return;
     };
     if let Err(error) = process.write(address, &bytes).and_then(|written| {
@@ -264,13 +264,13 @@ fn update_scratchpad(event: webui::Event) {
             .ok_or_else(|| std::io::Error::other("short process memory write"))
     }) {
         event.return_string(&format!(
-            "{{\"error\":\"{}\"}}",
+            r#"{{"error":"{}"}}"#,
             escape_json(&error.to_string())
         ));
         return;
     }
     let item = app.scratchpad.get_mut(index).expect("item checked above");
-    item.value = value;
+    item.value = value.into();
     item.active = active;
     event.return_string(&scratchpad_json(&app.scratchpad));
 }
@@ -306,15 +306,15 @@ fn update_params(event: &webui::Event, search: &mut MemorySearch) -> Result<(), 
 fn first_search(event: webui::Event) {
     let mut app = state().lock().expect("application state lock poisoned");
     let Some(process) = app.process.take() else {
-        event.return_string("{\"error\":\"no process attached\"}");
+        event.return_string(r#"{"error":"no process attached"}"#);
         return;
     };
     let response = if let Err(error) = update_params(&event, &mut app.search) {
-        format!("{{\"error\":\"{}\"}}", escape_json(&error))
+        format!(r#"{{"error":"{}"}}"#, escape_json(&error))
     } else {
         match app.search.first(&process) {
             Ok(_) => search_result_json(&app.search),
-            Err(error) => format!("{{\"error\":\"{}\"}}", escape_json(&error.to_string())),
+            Err(error) => format!(r#"{{"error":"{}"}}"#, escape_json(&error.to_string())),
         }
     };
     app.process = Some(process);
@@ -324,18 +324,18 @@ fn first_search(event: webui::Event) {
 fn next_search(event: webui::Event) {
     let mut app = state().lock().expect("application state lock poisoned");
     let Some(process) = app.process.take() else {
-        event.return_string("{\"error\":\"no process attached\"}");
+        event.return_string(r#"{"error":"no process attached"}"#);
         return;
     };
     let response = if let Err(error) = update_params(&event, &mut app.search) {
-        format!("{{\"error\":\"{}\"}}", escape_json(&error))
+        format!(r#"{{"error":"{}"}}"#, escape_json(&error))
     } else {
         match app
             .search
             .next_with_comparison(&process, SearchComparison::WithinRange)
         {
             Ok(_) => search_result_json(&app.search),
-            Err(error) => format!("{{\"error\":\"{}\"}}", escape_json(&error.to_string())),
+            Err(error) => format!(r#"{{"error":"{}"}}"#, escape_json(&error.to_string())),
         }
     };
     app.process = Some(process);
@@ -346,12 +346,12 @@ fn update_search_results(event: webui::Event) {
     let limit = event.get_int().max(1) as usize;
     let mut app = state().lock().expect("application state lock poisoned");
     let Some(process) = app.process.take() else {
-        event.return_string("{\"error\":\"no process attached\"}");
+        event.return_string(r#"{"error":"no process attached"}"#);
         return;
     };
     let response = match app.search.refresh_current(&process, limit) {
         Ok(_) => search_result_json(&app.search),
-        Err(error) => format!("{{\"error\":\"{}\"}}", escape_json(&error.to_string())),
+        Err(error) => format!(r#"{{"error":"{}"}}"#, escape_json(&error.to_string())),
     };
     app.process = Some(process);
     event.return_string(&response);
@@ -360,12 +360,12 @@ fn update_search_results(event: webui::Event) {
 fn next_comparison_search(event: webui::Event, comparison: SearchComparison) {
     let mut app = state().lock().expect("application state lock poisoned");
     let Some(process) = app.process.take() else {
-        event.return_string("{\"error\":\"no process attached\"}");
+        event.return_string(r#"{"error":"no process attached"}"#);
         return;
     };
     let response = match app.search.next_with_comparison(&process, comparison) {
         Ok(_) => search_result_json(&app.search),
-        Err(error) => format!("{{\"error\":\"{}\"}}", escape_json(&error.to_string())),
+        Err(error) => format!(r#"{{"error":"{}"}}"#, escape_json(&error.to_string())),
     };
     app.process = Some(process);
     event.return_string(&response);
@@ -386,7 +386,7 @@ fn detach_process(event: webui::Event) {
     app.scratchpad.clear();
     let html = process_html();
     event.show_client(html);
-    event.return_string("{\"ok\":true}");
+    event.return_string(r#"{"ok":true}"#);
 }
 
 fn reset_search(_event: webui::Event) {
