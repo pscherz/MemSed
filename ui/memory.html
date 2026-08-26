@@ -183,6 +183,10 @@
         border-collapse: collapse;
         width: 100%;
       }
+      .scratchpad .address-note {
+        width: 100%;
+        min-width: 120px;
+      }
       th,
       td {
         text-align: left;
@@ -322,7 +326,7 @@
               <thead>
                 <tr>
                   <th>Locked</th>
-                  <th>Address</th>
+                  <th>Address/Notes</th>
                   <th>Type</th>
                   <th>Value</th>
                   <th>Actions</th>
@@ -410,6 +414,19 @@
         Number($("alignment").value),
         $("deviation").value,
       ];
+      const scratchpadNotes = new Map();
+      const escapeHtml = (value) =>
+        String(value).replace(
+          /[&<>"']/g,
+          (character) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            })[character],
+        );
       const typeSizes = {
         u8: 1,
         i8: 1,
@@ -460,8 +477,12 @@
         $("scratchpad").querySelector("tbody").innerHTML =
           items
             .map(
-              (item) =>
-                `<tr data-index="${item.index}"><td><input type="checkbox" title="Reapply this value continuously" ${item.active ? "checked" : ""} onchange="updateScratch(${item.index}, this)"></td><td>${item.address}</td><td>${item.type}</td><td><input value="${item.value}" title="Value to write at this address" onfocus="this.select()" onkeydown="if(event.key === 'Enter'){event.preventDefault(); applyScratch(this)}"></td><td><button title="Write this value to this address" onclick="applyScratch(this)">Apply</button> <button title="Remove this address from the scratchpad" onclick="removeScratch(${item.index})">Remove</button></td></tr>`,
+              (item) => {
+                const note = scratchpadNotes.has(item.address)
+                  ? scratchpadNotes.get(item.address)
+                  : item.address;
+                return `<tr data-index="${item.index}" data-address="${escapeHtml(item.address)}"><td><input type="checkbox" title="Reapply this value continuously" ${item.active ? "checked" : ""} onchange="updateScratch(${item.index}, this)"></td><td><input class="address-note" value="${escapeHtml(note)}" data-address="${escapeHtml(item.address)}" title="Note for this address" oninput="scratchpadNotes.set(this.dataset.address, this.value)"></td><td>${escapeHtml(item.type)}</td><td><input class="value-input" value="${escapeHtml(item.value)}" title="Value to write at this address" onfocus="this.select()" onkeydown="if(event.key === 'Enter'){event.preventDefault(); applyScratch(this)}"></td><td><button title="Write this value to this address" onclick="applyScratch(this)">Apply</button> <button title="Remove this address from the scratchpad" onclick="removeScratch(${item.index})">Remove</button></td></tr>`;
+              },
             )
             .join("") ||
           '<tr><td colspan="5" class="hint">Scratchpad is empty</td></tr>';
@@ -469,7 +490,7 @@
       async function updateScratch(index, element, valueChanged = false) {
         const row = element.closest("tr"),
           active = row.querySelector("input[type=checkbox]").checked,
-          value = row.querySelector("input:not([type=checkbox])")?.value;
+          value = row.querySelector(".value-input")?.value;
         const response = JSON.parse(
           await update_scratchpad(index, valueChanged ? value : value, active),
         );
@@ -479,7 +500,7 @@
       async function applyScratch(button) {
         const row = button.closest("tr");
         const index = Number(row.dataset.index);
-        const value = row.querySelector("input:not([type=checkbox])").value;
+        const value = row.querySelector(".value-input").value;
         const active = row.querySelector("input[type=checkbox]").checked;
         const response = JSON.parse(
           await update_scratchpad(index, value, active),
@@ -492,6 +513,8 @@
         }
       }
       async function removeScratch(index) {
+        const row = $("scratchpad").querySelector(`tr[data-index="${index}"]`);
+        if (row) scratchpadNotes.delete(row.dataset.address);
         renderScratchpad(JSON.parse(await remove_scratchpad(index)));
       }
       $("attach").onclick = async () => {
@@ -591,7 +614,7 @@
           if (lock?.checked)
             await updateScratch(
               Number(row.dataset.index),
-              row.querySelector("input:not([type=checkbox])"),
+              row.querySelector(".value-input"),
             );
         }
       }, 500);
