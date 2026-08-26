@@ -13,7 +13,7 @@ in another process's memory.
 
 ## Building
 
-Install Rust, `curl`, and `unzip`, then run:
+Install Rust, `node`, and `npm`, then run:
 
 ```console
 cargo test

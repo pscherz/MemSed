@@ -12,7 +12,8 @@ none = []
 webui = ["dep:webui-rs"]
 
 [dependencies]
-webui-rs = { git = "https://github.com/webui-dev/rust-webui", branch = "main", optional = true }
+#webui-rs = { git = "https://github.com/webui-dev/rust-webui", branch = "main", optional = true }
+webui-rs = { git = "https://github.com/pscherz/pure-rust-webui", branch = "rust-rewrite", optional = true }
 
 [[bin]]
 name = "memsed-webui"
