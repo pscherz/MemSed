@@ -342,6 +342,21 @@ fn next_search(event: webui::Event) {
     event.return_string(&response);
 }
 
+fn update_search_results(event: webui::Event) {
+    let limit = event.get_int().max(1) as usize;
+    let mut app = state().lock().expect("application state lock poisoned");
+    let Some(process) = app.process.take() else {
+        event.return_string("{\"error\":\"no process attached\"}");
+        return;
+    };
+    let response = match app.search.refresh_current(&process, limit) {
+        Ok(_) => search_result_json(&app.search),
+        Err(error) => format!("{{\"error\":\"{}\"}}", escape_json(&error.to_string())),
+    };
+    app.process = Some(process);
+    event.return_string(&response);
+}
+
 fn next_comparison_search(event: webui::Event, comparison: SearchComparison) {
     let mut app = state().lock().expect("application state lock poisoned");
     let Some(process) = app.process.take() else {
@@ -394,6 +409,7 @@ fn main() {
     window.bind("attached_process", attached_process);
     window.bind("first_search", first_search);
     window.bind("next_search", next_search);
+    window.bind("update_search_results", update_search_results);
     window.bind("next_higher", next_higher);
     window.bind("next_lower", next_lower);
     window.bind("detach_process", detach_process);

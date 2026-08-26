@@ -241,6 +241,25 @@ impl MemorySearch {
         self.batches.last().map_or(&[], Vec::as_slice)
     }
 
+    pub fn refresh_current(&mut self, memory: &ProcessMemory, limit: usize) -> io::Result<usize> {
+        let Some(results) = self.batches.last_mut() else {
+            return Ok(0);
+        };
+        let mut updated = 0;
+        for item in results.iter_mut().take(limit) {
+            let mut bytes = vec![0; item.memory_type.size()];
+            if memory.read(item.address, &mut bytes)? != bytes.len() {
+                continue;
+            }
+            if let Some(value) = decode_value(item.memory_type, &bytes) {
+                item.previous = Some(item.value.clone());
+                item.value = format_value(item.memory_type, value);
+                updated += 1;
+            }
+        }
+        Ok(updated)
+    }
+
     fn scan_region(
         &self,
         memory: &ProcessMemory,

@@ -71,7 +71,7 @@
       }
       .layout {
         display: grid;
-        grid-template-columns: minmax(360px, 1.2fr) minmax(320px, 1fr);
+        grid-template-columns: minmax(260px, 1fr) minmax(0, 2fr);
         gap: 14px;
         min-height: 0;
       }
@@ -87,6 +87,18 @@
       }
       .toolbar input {
         flex: 1;
+      }
+      .auto-update {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .auto-update label {
+        color: var(--muted);
+      }
+      .auto-update input[type="number"] {
+        width: 76px;
       }
       .processes,
       .results,
@@ -179,7 +191,7 @@
       }
     </style>
   </head>
-  <body class="memory-page" onload="setTimeout(loadAttached, 250)">
+  <body class="memory-page">
     <main>
       <header>
         <h1>MemSed</h1>
@@ -293,6 +305,17 @@
               Reset
             </button>
           </div>
+          <div class="auto-update" title="Refresh visible search results from the target process">
+            <label>
+              <input id="auto-update" type="checkbox" checked />
+              Auto update
+            </label>
+            <label for="update-interval">Every</label>
+            <input id="update-interval" type="number" min="0.1" step="0.1" value="2" title="Seconds between result updates" />
+            <span class="hint">seconds</span>
+            <label for="update-limit">Entries</label>
+            <input id="update-limit" type="number" min="1" step="1" value="32" title="Maximum number of found addresses to update each time" />
+          </div>
           <div id="status" class="status">Attach to a process to begin.</div>
           <div id="scratchpad" class="scratchpad">
             <table>
@@ -322,8 +345,8 @@
           1. Enter the value to find and choose its type.<br />2. Click First
           Search.<br />3. Change the value in the target process.<br />4. Use
           Next Search, Higher, or Lower to narrow results.<br />5. Add an
-          address to the scratchpad, then Apply a new value.<br />6. Enable
-          Locked to reapply it continuously.
+          address to the scratchpad, then press enter or click Apply to update the value.<br />6. Enable
+          Locked to reapply it continuously if needed.
         </p>
         <button id="close-help">Close</button>
       </div>
@@ -506,6 +529,35 @@
       $("next-search").onclick = () => runSearch(next_search);
       $("higher-search").onclick = () => runSearch(next_higher);
       $("lower-search").onclick = () => runSearch(next_lower);
+      let updateTimer = null,
+        updateInProgress = false;
+      function scheduleResultUpdates() {
+        if (updateTimer !== null) clearInterval(updateTimer);
+        updateTimer = null;
+        if (!$("auto-update").checked) return;
+        const interval = Math.max(0.1, Number($("update-interval").value) || 2) * 1000;
+        updateTimer = setInterval(updateResults, interval);
+      }
+      async function updateResults() {
+        if (
+          updateInProgress ||
+          $("reset-search").disabled ||
+          typeof update_search_results !== "function"
+        )
+          return;
+        updateInProgress = true;
+        try {
+          showResults(
+            await update_search_results(
+              Math.max(1, Number($("update-limit").value) || 32),
+            ),
+          );
+        } finally {
+          updateInProgress = false;
+        }
+      }
+      $("auto-update").onchange = scheduleResultUpdates;
+      $("update-interval").onchange = scheduleResultUpdates;
       $("reset-search").onclick = () => {
         reset_search();
         [
@@ -519,6 +571,7 @@
         $("results").innerHTML =
           '<tr><td colspan="5" class="hint">No search results</td></tr>';
       };
+      scheduleResultUpdates();
       $("detach").onclick = async () => {
         try {
           await detach_process();
