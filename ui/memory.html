@@ -325,7 +325,7 @@
                   <th>Address</th>
                   <th>Type</th>
                   <th>Value</th>
-                  <th>Description</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -427,19 +427,21 @@
       };
       $("help").onclick = () => $("help-modal").classList.remove("hidden");
       $("close-help").onclick = () => $("help-modal").classList.add("hidden");
-      const showResults = (response) => {
-        const data = JSON.parse(response);
-        if (data.error) {
-          $("status").textContent = data.error;
-          return;
-        }
+      const showResults = (response, keepstatus) => {
         [
           "next-search",
           "higher-search",
           "lower-search",
           "reset-search",
         ].forEach((id) => ($(id).disabled = false));
-        $("status").textContent = `${data.count} result(s)`;
+        const data = JSON.parse(response);
+        if (data.error) {
+          $("status").textContent = data.error;
+          return;
+        }
+        if (!keepstatus) {
+          $("status").textContent = `${data.count} result(s)`;
+        }
         $("results").innerHTML =
           data.results
             .map(
@@ -553,6 +555,7 @@
             await update_search_results(
               Math.max(1, Number($("update-limit").value) || 32),
             ),
+            true,
           );
         } finally {
           updateInProgress = false;
