@@ -172,6 +172,21 @@
       .form select {
         width: 100%;
       }
+      .regions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 12px;
+        grid-column: 1 / -1;
+        padding-top: 4px;
+      }
+      .regions label {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .regions input {
+        width: auto;
+      }
       label {
         color: var(--muted);
       }
@@ -275,6 +290,21 @@
               <option>8</option>
               <option>16</option>
             </select>
+            <div class="regions" title="Memory regions to include in searches">
+              <strong>Regions</strong>
+              <label
+                ><input id="region-file" type="checkbox" /> File</label
+              >
+              <label
+                ><input id="region-heap" type="checkbox" checked /> Heap</label
+              >
+              <label
+                ><input id="region-stack" type="checkbox" /> Stack</label
+              >
+              <label
+                ><input id="region-anonymous" type="checkbox" checked /> Anonymous</label
+              >
+            </div>
           </div>
           <div class="toolbar">
             <button
@@ -413,6 +443,10 @@
         $("type").value,
         Number($("alignment").value),
         $("deviation").value,
+        $("region-file").checked,
+        $("region-heap").checked,
+        $("region-stack").checked,
+        $("region-anonymous").checked,
       ];
       const scratchpadNotes = new Map();
       const escapeHtml = (value) =>

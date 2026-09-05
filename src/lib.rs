@@ -7,7 +7,13 @@ use std::{
     io::{self, Read},
     os::unix::{fs::FileExt, fs::MetadataExt},
     path::{Path, PathBuf},
+    sync::{
+        Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
+
+use rayon::prelude::*;
 
 pub type ProcessId = i32;
 pub type MemoryAddress = u64;
@@ -28,6 +34,36 @@ pub enum RegionKind {
     Heap,
     Stack,
     Anonymous,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RegionKinds {
+    pub file: bool,
+    pub heap: bool,
+    pub stack: bool,
+    pub anonymous: bool,
+}
+
+impl RegionKinds {
+    pub const fn contains(self, kind: RegionKind) -> bool {
+        match kind {
+            RegionKind::File => self.file,
+            RegionKind::Heap => self.heap,
+            RegionKind::Stack => self.stack,
+            RegionKind::Anonymous => self.anonymous,
+        }
+    }
+}
+
+impl Default for RegionKinds {
+    fn default() -> Self {
+        Self {
+            file: false,
+            heap: true,
+            stack: false,
+            anonymous: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -124,7 +160,7 @@ pub struct SearchParams {
     pub deviation: f64,
     pub alignment: u64,
     pub memory_type: MemoryType,
-    pub region_kinds: [bool; 4],
+    pub region_kinds: RegionKinds,
     pub required_flags: RegionFlags,
 }
 
@@ -135,7 +171,7 @@ impl Default for SearchParams {
             deviation: 0.1,
             alignment: 4,
             memory_type: MemoryType::I32,
-            region_kinds: [false, true, true, true],
+            region_kinds: RegionKinds::default(),
             required_flags: RegionFlags::READ,
         }
     }
@@ -183,16 +219,19 @@ impl MemorySearch {
             self.params.required_flags,
         )?
         .into_iter()
-        .filter(|region| match region.kind {
-            RegionKind::File => self.params.region_kinds[0],
-            RegionKind::Heap => self.params.region_kinds[1],
-            RegionKind::Stack => self.params.region_kinds[2],
-            RegionKind::Anonymous => self.params.region_kinds[3],
-        })
+        .filter(|region| self.params.region_kinds.contains(region.kind))
         .collect();
         let mut results = Vec::new();
         for region in &self.regions {
-            let _ = self.scan_region(memory, region, None, &mut results);
+            if region.kind == RegionKind::Anonymous {
+                self.scan_anonymous_region(memory, region, &mut results);
+            } else {
+                let _ = self.scan_region(memory, region, &mut results);
+            }
+            results.truncate(100_000);
+            if results.len() == 100_000 {
+                break;
+            }
         }
         self.batches.push(results);
         Ok(self.batches[0].len())
@@ -264,12 +303,11 @@ impl MemorySearch {
         &self,
         memory: &ProcessMemory,
         region: &MemoryRegion,
-        _previous: Option<&[SearchResult]>,
         results: &mut Vec<SearchResult>,
     ) -> io::Result<()> {
         let size = self.params.memory_type.size();
         let alignment = self.params.alignment.max(1);
-        let chunk_size = 128 * 1024;
+        let chunk_size = 1024 * 1024;
         let mut chunk_start = region.start;
         let mut buffer = vec![0; chunk_size];
         while chunk_start < region.end && results.len() < 100_000 {
@@ -302,6 +340,57 @@ impl MemorySearch {
             chunk_start += read as u64;
         }
         Ok(())
+    }
+
+    fn scan_anonymous_region(
+        &self,
+        memory: &ProcessMemory,
+        region: &MemoryRegion,
+        results: &mut Vec<SearchResult>,
+    ) {
+        let chunk_size = 1024 * 1024;
+        let chunk_count = region.len().div_ceil(chunk_size as u64) as usize;
+        let memory_type = self.params.memory_type;
+        let alignment = self.params.alignment.max(1);
+        let result_count = AtomicUsize::new(0);
+        let shared_results = Mutex::new(results);
+
+        (0..chunk_count).into_par_iter().for_each(|chunk_index| {
+            let chunk_start = region.start + chunk_index as u64 * chunk_size as u64;
+            let chunk_end = (chunk_start + chunk_size as u64).min(region.end);
+            let read_len = (chunk_end - chunk_start) as usize;
+            let mut buffer = vec![0; read_len];
+            let read = memory.read(chunk_start, &mut buffer).unwrap_or_default();
+            let mut chunk_results = Vec::new();
+            let size = memory_type.size();
+            let relative = chunk_start - region.start;
+            let offset = ((alignment - relative % alignment) % alignment) as usize;
+            let mut offset = offset;
+            while offset + size <= read && result_count.load(Ordering::Relaxed) < 100_000 {
+                if let Some(value) = decode_value(memory_type, &buffer[offset..offset + size]) {
+                    if in_range(value, self.params.value, self.params.deviation)
+                        && result_count
+                            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
+                                (count < 100_000).then_some(count + 1)
+                            })
+                            .is_ok()
+                    {
+                        chunk_results.push(SearchResult {
+                            address: chunk_start + offset as u64,
+                            memory_type,
+                            value: format_value(memory_type, value),
+                            previous: None,
+                            numeric_value: value,
+                        });
+                    }
+                }
+                offset += alignment as usize;
+            }
+            if !chunk_results.is_empty() {
+                let mut results = shared_results.lock().expect("results lock poisoned");
+                results.extend(chunk_results);
+            }
+        });
     }
 }
 

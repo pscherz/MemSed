@@ -4,8 +4,8 @@ use std::{
 };
 
 use memsed_core::{
-    MemorySearch, MemoryType, ProcessId, ProcessMemory, SearchComparison, inspect_process,
-    list_processes,
+    MemorySearch, MemoryType, ProcessId, ProcessMemory, RegionKinds, SearchComparison,
+    inspect_process, list_processes,
 };
 use webui_rs::webui;
 
@@ -300,6 +300,12 @@ fn update_params(event: &webui::Event, search: &mut MemorySearch) -> Result<(), 
     search.params.memory_type = memory_type;
     search.params.alignment = alignment;
     search.params.deviation = deviation;
+    search.params.region_kinds = RegionKinds {
+        file: event.get_bool_at(4),
+        heap: event.get_bool_at(5),
+        stack: event.get_bool_at(6),
+        anonymous: event.get_bool_at(7),
+    };
     Ok(())
 }
 
