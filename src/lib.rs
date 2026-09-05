@@ -192,7 +192,7 @@ impl MemorySearch {
         .collect();
         let mut results = Vec::new();
         for region in &self.regions {
-            self.scan_region(memory, region, None, &mut results)?;
+            let _ = self.scan_region(memory, region, None, &mut results);
         }
         self.batches.push(results);
         Ok(self.batches[0].len())
@@ -275,7 +275,9 @@ impl MemorySearch {
         while chunk_start < region.end && results.len() < 100_000 {
             let remaining = region.end - chunk_start;
             let read_len = remaining.min(chunk_size as u64) as usize;
-            let read = memory.read(chunk_start, &mut buffer[..read_len])?;
+            let read = memory
+                .read(chunk_start, &mut buffer[..read_len])
+                .unwrap_or_default();
             if read == 0 {
                 break;
             }
